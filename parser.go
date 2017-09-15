@@ -555,17 +555,21 @@ var (
 	nullLiteral  = []byte("null")
 )
 
-func isValidArrayIndex(key string) (isArray bool, padCount int) {
+func isValidArrayIndex(key string) (isArray bool, idx int) {
+	idx = -1
 	if key[0] == '[' && key[len(key)-1] == ']' {
 		idxVal := key[1 : len(key)-1]
 		if idxVal == "+" || idxVal == "-" {
 			isArray = true
+			idx = 0
 		} else if idxNum, err := strconv.Atoi(idxVal); err == nil {
-			isArray = true
-			padCount = idxNum
+			if idxNum >= 0 {
+				isArray = true
+				idx = idxNum
+			}
 		}
 	}
-	return isArray, padCount
+	return isArray, idx
 }
 
 func createInsertComponent(keys []string, setValue []byte, startComma, endComma, isObject bool) []byte {
