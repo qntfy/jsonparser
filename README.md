@@ -1,4 +1,4 @@
-[![Go Report Card](https://goreportcard.com/badge/github.com/buger/jsonparser)](https://goreportcard.com/report/github.com/buger/jsonparser) ![License](https://img.shields.io/dub/l/vibe-d.svg)
+[![Go Report Card](https://goreportcard.com/badge/github.com/qntfy/jsonparser)](https://goreportcard.com/report/github.com/qntfy/jsonparser) ![License](https://img.shields.io/dub/l/vibe-d.svg)
 # Alternative JSON parser for Go (so far fastest)
 
 It does not require you to know the structure of the payload (eg. create structs), and allows accessing fields by providing the path to them. It is up to **10 times faster** than standard `encoding/json` package (depending on payload size and usage), **allocates no memory**. See benchmarks below.
@@ -15,7 +15,7 @@ Goal of this project is to push JSON parser to the performance limits and not sa
 For the given JSON our goal is to extract the user's full name, number of github followers and avatar.
 
 ```go
-import "github.com/buger/jsonparser"
+import "github.com/qntfy/jsonparser"
 
 ...
 
@@ -98,7 +98,7 @@ I'm available for consulting and can help you push your app performance to the l
 
 Library API is really simple. You just need the `Get` method to perform any operation. The rest is just helpers around it.
 
-You also can view API at [godoc.org](https://godoc.org/github.com/buger/jsonparser)
+You also can view API at [godoc.org](https://godoc.org/github.com/qntfy/jsonparser)
 
 
 ### **`Get`**
@@ -215,6 +215,11 @@ Accepts multiple keys to specify path to JSON value (in case of updating or crea
 
 Note that keys can be an array indexes: `jsonparser.Set(data, []byte("http://github.com"), "person", "avatars", "[0]", "url")`
 
+Array append and prepend are also supported with `[+]` and `[-]`: `jsonparser.Set(data, []byte("http://github.com"), "person", "avatars", "[+]", "url")`
+
+If an array index is Set() that is greater than the array length (or a non existing array) it will be null-padded and/or created as needed.
+Get() with the same keys on the returned `value` should return `setValue`. *Array Set code is experimental, please report any bugs found!*
+
 ### **`Delete`**
 ```go
 func Delete(data []byte, keys ...string) value []byte
@@ -252,7 +257,7 @@ Compared libraries:
 * https://github.com/ugorji/go/codec
 * https://github.com/pquerna/ffjson
 * https://github.com/mailru/easyjson
-* https://github.com/buger/jsonparser
+* https://github.com/qntfy/jsonparser
 
 #### TLDR
 If you want to skip next sections we have 2 winner: `jsonparser` and `easyjson`.
@@ -272,7 +277,7 @@ With great power comes great responsibility! :)
 
 Each test processes 190 bytes of http log as a JSON record.
 It should read multiple fields.
-https://github.com/buger/jsonparser/blob/master/benchmark/benchmark_small_payload_test.go
+https://github.com/qntfy/jsonparser/blob/master/benchmark/benchmark_small_payload_test.go
 
 Library | time/op | bytes/op | allocs/op 
  ------ | ------- | -------- | -------
@@ -297,7 +302,7 @@ If you look at memory allocation, jsonparser has no rivals, as it makes no data 
 Each test processes a 2.4kb JSON record (based on Clearbit API).
 It should read multiple nested fields and 1 array.
 
-https://github.com/buger/jsonparser/blob/master/benchmark/benchmark_medium_payload_test.go
+https://github.com/qntfy/jsonparser/blob/master/benchmark/benchmark_medium_payload_test.go
 
 | Library | time/op | bytes/op | allocs/op |
 | ------- | ------- | -------- | --------- |
@@ -326,7 +331,7 @@ Each test processes a 24kb JSON record (based on Discourse API)
 It should read 2 arrays, and for each item in array get a few fields.
 Basically it means processing a full JSON file.
 
-https://github.com/buger/jsonparser/blob/master/benchmark/benchmark_large_payload_test.go
+https://github.com/qntfy/jsonparser/blob/master/benchmark/benchmark_large_payload_test.go
 
 | Library | time/op | bytes/op | allocs/op |
 | --- | --- | --- | --- |
