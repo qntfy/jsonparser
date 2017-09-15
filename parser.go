@@ -761,7 +761,7 @@ func Set(data []byte, setValue []byte, keys ...string) (value []byte, err error)
 			} else if isValidArray, _ := isValidArrayIndex(keys[depth]); data[startOffset] == '[' &&
 				data[startOffset+1+nextToken(data[startOffset+1:])] != ']' && isValidArray {
 				// if subpath is a non-empty array and next key is an array index, add to it
-				arrayOffset := -1
+				var arrayOffset int
 				var padString []byte
 				idxVal := keys[depth][1 : len(keys[depth])-1]
 				idxNum, err := strconv.Atoi(idxVal)
@@ -786,20 +786,18 @@ func Set(data []byte, setValue []byte, keys ...string) (value []byte, err error)
 					startComma = false
 				}
 
-				if arrayOffset != -1 {
-					depth++
-					startOffset = startOffset + arrayOffset
-					depthOffset = startOffset
-					if depth < len(keys) && keys[depth][0] != '[' {
-						object = true
-					}
-					insertComponent := createInsertComponent(keys[depth:], setValue, startComma, endComma, object)
-					if len(padString) > 0 {
-						insertComponent = append(padString, insertComponent...)
-					}
-					value = append(data[:startOffset], append(insertComponent, data[depthOffset:]...)...)
-					return value, nil
+				depth++
+				startOffset = startOffset + arrayOffset
+				depthOffset = startOffset
+				if depth < len(keys) && keys[depth][0] != '[' {
+					object = true
 				}
+				insertComponent := createInsertComponent(keys[depth:], setValue, startComma, endComma, object)
+				if len(padString) > 0 {
+					insertComponent = append(padString, insertComponent...)
+				}
+				value = append(data[:startOffset], append(insertComponent, data[depthOffset:]...)...)
+				return value, nil
 			} else {
 				// otherwise, over-write it with a new object
 				startComma = false
