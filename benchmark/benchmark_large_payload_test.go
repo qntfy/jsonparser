@@ -6,7 +6,7 @@
 package benchmark
 
 import (
-	"github.com/buger/jsonparser"
+	"github.com/qntfy/jsonparser"
 	"testing"
 	// "github.com/Jeffail/gabs"
 	// "github.com/bitly/go-simplejson"

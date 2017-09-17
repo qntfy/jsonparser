@@ -555,27 +555,102 @@ var (
 	nullLiteral  = []byte("null")
 )
 
-func createInsertComponent(keys []string, setValue []byte, comma, object bool) []byte {
+// Determines whether a path key is a valid array index - bracketed +/- or integer >= 0
+// Also returns the integer index value or 0 for +/- for convenience
+func isValidArrayIndex(key string) (isArray bool, idx int) {
+	idx = -1
+	if key[0] == '[' && key[len(key)-1] == ']' {
+		idxVal := key[1 : len(key)-1]
+		if idxVal == "+" || idxVal == "-" {
+			isArray = true
+			idx = 0
+		} else if idxNum, err := strconv.Atoi(idxVal); err == nil {
+			if idxNum >= 0 {
+				isArray = true
+				idx = idxNum
+			}
+		}
+	}
+	return isArray, idx
+}
+
+// Creates the json component that will be inserted by Set(), including nested keys / arrays that need to be created.
+// Also prefix/suffix with top level comma or {} based on provided bools.
+func createInsertComponent(keys []string, setValue []byte, startComma, endComma, isObject bool) []byte {
+	// If no keys, just return setValue with prefix/suffix comma as needed
+	if len(keys) == 0 {
+		if startComma {
+			value := make([]byte, len(setValue)+1)
+			value[0] = ','
+			copy(value[1:], setValue)
+			return value
+		} else if endComma {
+			value := make([]byte, len(setValue)+1)
+			copy(value, setValue)
+			value[len(value)-1] = ','
+			return value
+		} else {
+			return setValue
+		}
+	}
+
+	// Otherwise use a buffer and iterate through keys
 	var buffer bytes.Buffer
-	if comma {
+
+	// Initial prefixes, comma or top level array or object/first key
+	isArray, padCount := isValidArrayIndex(keys[0])
+	if startComma {
 		buffer.WriteString(",")
 	}
-	if object {
-		buffer.WriteString("{")
-	}
-	buffer.WriteString("\"")
-	buffer.WriteString(keys[0])
-	buffer.WriteString("\":")
-	for i := 1; i < len(keys); i++ {
-		buffer.WriteString("{\"")
-		buffer.WriteString(keys[i])
+	if isArray {
+		buffer.WriteString("[")
+		// pad array with nulls if non-zero numeric index
+		buffer.WriteString(strings.Repeat("null,", padCount))
+	} else {
+		if isObject {
+			buffer.WriteString("{")
+		}
+		buffer.WriteString("\"")
+		buffer.WriteString(keys[0])
 		buffer.WriteString("\":")
 	}
+
+	// Iterate through remaining keys and create nested objects/arrays
+	for i := 1; i < len(keys); i++ {
+		isNestedArray, padCount := isValidArrayIndex(keys[i])
+		if isNestedArray {
+			buffer.WriteString("[")
+			buffer.WriteString(strings.Repeat("null,", padCount))
+		} else {
+			buffer.WriteString("{\"")
+			buffer.WriteString(keys[i])
+			buffer.WriteString("\":")
+		}
+	}
+
+	// Write the actual set value
 	buffer.Write(setValue)
-	buffer.WriteString(strings.Repeat("}", len(keys)-1))
-	if object {
+
+	// Iterate backwards through keys to close objects/arrays
+	for i := len(keys) - 1; i > 0; i-- {
+		isInternalArray, _ := isValidArrayIndex(keys[i])
+		if isInternalArray {
+			buffer.WriteString("]")
+		} else {
+			buffer.WriteString("}")
+		}
+	}
+
+	// Suffix closing brackets / comma
+	if isArray {
+		buffer.WriteString("]")
+	} else if isObject {
 		buffer.WriteString("}")
 	}
+	if endComma {
+		buffer.WriteString(",")
+	}
+
 	return buffer.Bytes()
 }
 
@@ -681,7 +756,8 @@ func Set(data []byte, setValue []byte, keys ...string) (value []byte, err error)
 				depth++
 			}
 		}
-		comma := true
+		startComma := true
+		endComma := false
 		object := false
 		if endOffset == -1 {
 			firstToken := nextToken(data)
@@ -692,7 +768,7 @@ func Set(data []byte, setValue []byte, keys ...string) (value []byte, err error)
 			// Don't need a comma if the input is an empty object
 			secondToken := firstToken + 1 + nextToken(data[firstToken+1:])
 			if data[secondToken] == '}' {
-				comma = false
+				startComma = false
 			}
 			// Set the top level key at the end (accounting for any trailing whitespace)
 			// This assumes last token is valid like '}', could check and return error
@@ -704,15 +780,60 @@ func Set(data []byte, setValue []byte, keys ...string) (value []byte, err error)
 			if data[startOffset] == '{' && data[startOffset+1+nextToken(data[startOffset+1:])] != '}' {
 				depthOffset--
 				startOffset = depthOffset
-				// otherwise, over-write it with a new object
+
+			} else if isValidArray, _ := isValidArrayIndex(keys[depth]); data[startOffset] == '[' &&
+				data[startOffset+1+nextToken(data[startOffset+1:])] != ']' && isValidArray {
+				// if subpath is a non-empty array and next key is an array index, add to it
+				var arrayOffset int
+				var padString []byte
+				idxVal := keys[depth][1 : len(keys[depth])-1]
+				idxNum, err := strconv.Atoi(idxVal)
+				if err == nil {
+					// Need to pad to get to idxNum'th element
+					elementCount := 0
+					ArrayEach(data[startOffset:endOffset], func(value []byte, dataType ValueType, offset int, err error) {
+						elementCount++
+						arrayOffset = offset + len(value)
+					})
+					padString = []byte(strings.Repeat(",null", idxNum-elementCount))
+				} else if idxVal == "+" {
+					// Append to end of existing array
+					end := blockEnd(data[startOffset:endOffset], '[', ']')
+					if end != -1 {
+						// blockEnd() returns the offset of ']', we want one before
+						arrayOffset = end - 1
+					}
+				} else if idxVal == "-" {
+					// Prepend at beginning of existing array
+					arrayOffset = 1
+					endComma = true
+					startComma = false
+				}
+				startOffset = startOffset + arrayOffset
+				depthOffset = startOffset
+
+				// Move to next key
+				depth++
+				if depth < len(keys) && keys[depth][0] != '[' {
+					object = true
+				}
+
+				// build and insert final component including any padding, return
+				insertComponent := createInsertComponent(keys[depth:], setValue, startComma, endComma, object)
+				if len(padString) > 0 {
+					insertComponent = append(padString, insertComponent...)
+				}
+				value = append(data[:startOffset], append(insertComponent, data[depthOffset:]...)...)
+				return value, nil
 			} else {
-				comma = false
+				// if not existing object or array, just over-write subpath with a new object
+				startComma = false
 				object = true
 			}
 		} else {
 			startOffset = depthOffset
 		}
-		value = append(data[:startOffset], append(createInsertComponent(keys[depth:], setValue, comma, object), data[depthOffset:]...)...)
+		value = append(data[:startOffset], append(createInsertComponent(keys[depth:], setValue, startComma, endComma, object), data[depthOffset:]...)...)
 	} else {
 		// path currently exists
 		startComponent := data[:startOffset]
