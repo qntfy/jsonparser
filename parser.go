@@ -555,6 +555,8 @@ var (
 	nullLiteral  = []byte("null")
 )
 
+// Determines whether a path key is a valid array index - bracketed +/- or integer >= 0
+// Also returns the integer index value or 0 for +/- for convenience
 func isValidArrayIndex(key string) (isArray bool, idx int) {
 	idx = -1
 	if key[0] == '[' && key[len(key)-1] == ']' {
@@ -572,7 +574,10 @@ func isValidArrayIndex(key string) (isArray bool, idx int) {
 	return isArray, idx
 }
 
+// Creates the json component that will be inserted by Set(), including nested keys / arrays that need to be created.
+// Also prefix/suffix with top level comma or {} based on provided bools.
 func createInsertComponent(keys []string, setValue []byte, startComma, endComma, isObject bool) []byte {
+	// If no keys, just return setValue with prefix/suffix comma as needed
 	if len(keys) == 0 {
 		if startComma {
 			value := make([]byte, len(setValue)+1)
@@ -588,13 +593,18 @@ func createInsertComponent(keys []string, setValue []byte, startComma, endComma,
 			return setValue
 		}
 	}
+
+	// Otherwise use a buffer and iterate through keys
 	var buffer bytes.Buffer
+
+	// Initial prefixes, comma or top level array or object/first key
 	isArray, padCount := isValidArrayIndex(keys[0])
 	if startComma {
 		buffer.WriteString(",")
 	}
 	if isArray {
 		buffer.WriteString("[")
+		// pad array with nulls if non-zero numeric index
 		buffer.WriteString(strings.Repeat("null,", padCount))
 	} else {
 		if isObject {
@@ -605,9 +615,10 @@ func createInsertComponent(keys []string, setValue []byte, startComma, endComma,
 		buffer.WriteString("\":")
 	}
 
+	// Iterate through remaining keys and create nested objects/arrays
 	for i := 1; i < len(keys); i++ {
-		isInternalArray, padCount := isValidArrayIndex(keys[i])
-		if isInternalArray {
+		isNestedArray, padCount := isValidArrayIndex(keys[i])
+		if isNestedArray {
 			buffer.WriteString("[")
 			buffer.WriteString(strings.Repeat("null,", padCount))
 		} else {
@@ -616,7 +627,11 @@ func createInsertComponent(keys []string, setValue []byte, startComma, endComma,
 			buffer.WriteString("\":")
 		}
 	}
+
+	// Write the actual set value
 	buffer.Write(setValue)
+
+	// Iterate backwards through keys to close objects/arrays
 	for i := len(keys) - 1; i > 0; i-- {
 		isInternalArray, _ := isValidArrayIndex(keys[i])
 		if isInternalArray {
@@ -625,6 +640,8 @@ func createInsertComponent(keys []string, setValue []byte, startComma, endComma,
 			buffer.WriteString("}")
 		}
 	}
+
+	// Suffix closing brackets / comma
 	if isArray {
 		buffer.WriteString("]")
 	} else if isObject {
@@ -633,6 +650,7 @@ func createInsertComponent(keys []string, setValue []byte, startComma, endComma,
 	if endComma {
 		buffer.WriteString(",")
 	}
+
 	return buffer.Bytes()
 }
 
@@ -762,6 +780,7 @@ func Set(data []byte, setValue []byte, keys ...string) (value []byte, err error)
 			if data[startOffset] == '{' && data[startOffset+1+nextToken(data[startOffset+1:])] != '}' {
 				depthOffset--
 				startOffset = depthOffset
+
 			} else if isValidArray, _ := isValidArrayIndex(keys[depth]); data[startOffset] == '[' &&
 				data[startOffset+1+nextToken(data[startOffset+1:])] != ']' && isValidArray {
 				// if subpath is a non-empty array and next key is an array index, add to it
@@ -778,6 +797,7 @@ func Set(data []byte, setValue []byte, keys ...string) (value []byte, err error)
 					})
 					padString = []byte(strings.Repeat(",null", idxNum-elementCount))
 				} else if idxVal == "+" {
+					// Append to end of existing array
 					end := blockEnd(data[startOffset:endOffset], '[', ']')
 					if end != -1 {
 						// blockEnd() returns the offset of ']', we want one before
@@ -789,13 +809,16 @@ func Set(data []byte, setValue []byte, keys ...string) (value []byte, err error)
 					endComma = true
 					startComma = false
 				}
-
-				depth++
 				startOffset = startOffset + arrayOffset
 				depthOffset = startOffset
+
+				// Move to next key
+				depth++
 				if depth < len(keys) && keys[depth][0] != '[' {
 					object = true
 				}
+
+				// build and insert final component including any padding, return
 				insertComponent := createInsertComponent(keys[depth:], setValue, startComma, endComma, object)
 				if len(padString) > 0 {
 					insertComponent = append(padString, insertComponent...)
@@ -803,7 +826,7 @@ func Set(data []byte, setValue []byte, keys ...string) (value []byte, err error)
 				value = append(data[:startOffset], append(insertComponent, data[depthOffset:]...)...)
 				return value, nil
 			} else {
-				// otherwise, over-write it with a new object
+				// if not existing object or array, just over-write subpath with a new object
 				startComma = false
 				object = true
 			}
