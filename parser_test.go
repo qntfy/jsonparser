@@ -519,6 +519,12 @@ var getTests = []GetTest{
 		data:    `{"c":"d" }`,
 	},
 	{
+		desc:    `handle non-object and skip`,
+		json:    `{"a":"d","c":{"c":[1,2]}} }`,
+		path:    []string{"a", "c"},
+		isFound: false,
+	},
+	{
 		desc:    `empty path`,
 		json:    `{"c":"d" }`,
 		path:    []string{},

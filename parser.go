@@ -254,6 +254,13 @@ func searchKeys(data []byte, keys ...string) int {
 					// If we found all keys in path
 					if keyLevel == lk {
 						return i + 1
+					} else {
+						// If there are more keys in the path, confirm the next
+						// token is the start of an array or an object
+						nextValOffset := nextToken(data[i+1:])
+						if data[i+1+nextValOffset] != '{' && data[i+1+nextValOffset] != '[' {
+							return -1
+						}
 					}
 				}
 			} else {
